@@ -1,0 +1,19 @@
+{
+  "id": "agent-telemetry",
+  "name": "agent-telemetry",
+  "version": "0.3.0-rc.1",
+  "runtime": "go",
+  "binary": "agent-telemetry",
+  "adapters": [
+    {
+      "id": "claude",
+      "collectionMode": "terminal-hook",
+      "entrypoint": "agent-telemetry hook claude"
+    },
+    {
+      "id": "codex",
+      "collectionMode": "terminal-hook",
+      "entrypoint": "agent-telemetry hook codex"
+    }
+  ]
+}

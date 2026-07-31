@@ -1,0 +1,5 @@
+/dist/
+/output/
+/.idea/
+*.log
+*.tmp
