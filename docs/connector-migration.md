@@ -32,6 +32,6 @@ obs-agent-connector update codex   -> agent-telemetry install
 ## 兼容策略
 
 - 重装时识别并替换旧 `gtrace-agent`、Claude Python Hook 和旧 Codex Hook；
-- 默认保留 `gtrace.json`、endpoint、headers、enabled 和隐私设置；
-- 默认卸载只移除托管 Hook，`--purge` 才删除配置和状态；
+- 重装时仍保留 `gtrace.json`、endpoint、headers、enabled 和隐私设置；
+- 默认卸载会删除托管 Hook 和对应 `gtrace.json`，`--purge` 再删除状态目录；
 - 旧逐 turn 状态目录暂时保留，避免升级后重复上报历史 turn。

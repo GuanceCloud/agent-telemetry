@@ -6,11 +6,15 @@ import (
 	"testing"
 )
 
-func TestRemoveClaudePreservesUnrelatedHooksAndPurgesOnlyOnRequest(t *testing.T) {
+func TestRemoveClaudeDeletesConfigAndPurgesStateOnRequest(t *testing.T) {
 	home := t.TempDir()
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	configPath := filepath.Join(home, ".claude", "gtrace.json")
+	statePath := filepath.Join(home, ".claude", "state", "agent-telemetry")
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(statePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTestJSON(t, settingsPath, map[string]any{
@@ -37,11 +41,14 @@ func TestRemoveClaudePreservesUnrelatedHooksAndPurgesOnlyOnRequest(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.HookRemoved || result.ConfigPurged {
+	if !result.HookRemoved || !result.ConfigRemoved || result.StatePurged {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-	if _, err := os.Stat(configPath); err != nil {
-		t.Fatalf("config should be preserved: %v", err)
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config should be removed: %v", err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("state should be preserved without purge: %v", err)
 	}
 
 	var settings map[string]any
@@ -56,10 +63,13 @@ func TestRemoveClaudePreservesUnrelatedHooksAndPurgesOnlyOnRequest(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.ConfigPurged {
+	if !result.ConfigRemoved || !result.StatePurged {
 		t.Fatalf("purge was not reported: %#v", result)
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("config was not purged: %v", err)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("state was not purged: %v", err)
 	}
 }

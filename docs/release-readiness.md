@@ -1,4 +1,4 @@
-# v0.3.0-rc.2 发布验收
+# v0.3.0-rc.3 发布验收
 
 - [x] 单一 `agent-telemetry` manifest、二进制和发布版本
 - [x] Claude/Codex 作为内置 Adapter，不再生成独立插件包

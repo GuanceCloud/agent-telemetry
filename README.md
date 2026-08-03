@@ -31,8 +31,8 @@ curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/latest/downlo
 固定版本安装：
 
 ```bash
-curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/download/v0.3.0-rc.2/install-release.sh | bash -s -- \
-  --release-version v0.3.0-rc.2 \
+curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/download/v0.3.0-rc.3/install-release.sh | bash -s -- \
+  --release-version v0.3.0-rc.3 \
   codex \
   --type otlp \
   --endpoint http://127.0.0.1:4318 \
@@ -57,6 +57,11 @@ Windows 直接从 GitHub Release 安装：
 
 重复执行 `install` 会替换共享二进制、校准 Hook，并保留没有显式覆盖的已有配置。
 统一模型中没有 `update codex`：升级的是整个 `agent-telemetry`，不是某个独立插件。
+升级共享运行时可直接执行：
+
+```bash
+agent-telemetry version -u
+```
 
 安装后共享运行时位于：
 
@@ -84,9 +89,9 @@ agent-telemetry uninstall --purge
 ```
 
 - `discover` 只发现和显示状态，不修改系统。
-- `uninstall codex` 只移除 Codex Adapter Hook，默认保留配置。
+- `uninstall codex` 会移除 Codex Adapter Hook，并删除对应的 `gtrace.json`。
 - `uninstall` 移除所有 Adapter Hook 和共享运行时。
-- `--purge` 额外删除相应 Adapter 的配置和状态。
+- `--purge` 额外删除相应 Adapter 的状态目录。
 
 完整安装参数：
 

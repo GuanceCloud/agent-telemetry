@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -10,16 +11,17 @@ import (
 	codexhook "github.com/GuanceCloud/agent-telemetry/internal/adapters/codex/hook"
 	"github.com/GuanceCloud/agent-telemetry/internal/install"
 	"github.com/GuanceCloud/agent-telemetry/internal/manage"
+	"github.com/GuanceCloud/agent-telemetry/internal/selfupdate"
 )
 
-var version = "0.3.0-rc.2"
+var version = "0.3.0-rc.3"
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help") {
 		printUsage(os.Stdout)
 		return
 	}
-	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
 		fmt.Println(version)
 		return
 	}
@@ -69,8 +71,8 @@ func main() {
 			if len(os.Args) > 2 {
 				target = os.Args[2]
 			}
-			printRuntimeStatus()
 			if target == "" || target == "all" {
+				printRuntimeStatus()
 				statuses, err := manage.Discover("")
 				if err != nil {
 					exitError(1, "read adapter status", err)
@@ -82,7 +84,7 @@ func main() {
 			if err != nil {
 				exitError(1, "read adapter status", err)
 			}
-			printStatuses([]manage.AdapterStatus{status})
+			printStatusDetail(status)
 			return
 		case "enable", "disable":
 			if len(os.Args) != 3 {
@@ -100,6 +102,11 @@ func main() {
 				exitError(1, "uninstall agent-telemetry", err)
 			}
 			return
+		case "version":
+			if err := runVersion(os.Args[2:]); err != nil {
+				exitError(1, "version", err)
+			}
+			return
 		}
 	}
 	printUsage(os.Stderr)
@@ -110,16 +117,20 @@ func printUsage(output *os.File) {
 	fmt.Fprintln(output, `agent-telemetry
 
 Usage:
-  agent-telemetry install [claude|codex|all] [options]
-  agent-telemetry discover
-  agent-telemetry status [claude|codex]
-  agent-telemetry enable <claude|codex>
-  agent-telemetry disable <claude|codex>
-  agent-telemetry uninstall [claude|codex|all] [--purge]
-  agent-telemetry hook <claude|codex>
-  agent-telemetry version
+  agent-telemetry install [claude|codex|all] [options]   install the shared runtime and register adapter hooks
+  agent-telemetry discover                               detect supported Agents on this machine without changing config
+  agent-telemetry status [claude|codex]                  show runtime install state and adapter hook/config status
+  agent-telemetry enable <claude|codex>                  set enabled=true in the adapter gtrace.json
+  agent-telemetry disable <claude|codex>                 set enabled=false in the adapter gtrace.json
+  agent-telemetry uninstall [claude|codex|all] [--purge] remove managed hooks and delete adapter gtrace.json
+  agent-telemetry hook <claude|codex>                    internal hook entrypoint invoked by Claude/Codex
+  agent-telemetry version [-u]                           print the version or upgrade the shared runtime
 
-Run "agent-telemetry install --help" for installation options.`)
+Notes:
+  --purge on uninstall also removes adapter state directories.
+  Re-running install upgrades the shared runtime; there is no per-adapter update command.
+  Use "agent-telemetry version -u" to upgrade from GitHub Release assets.
+  Run "agent-telemetry install --help" for installation options.`)
 }
 
 func splitTarget(args []string) (string, []string) {
@@ -151,6 +162,35 @@ func printStatuses(statuses []manage.AdapterStatus) {
 	}
 }
 
+func printStatusDetail(status manage.AdapterStatus) {
+	home, _ := os.UserHomeDir()
+	runtimePath := manage.RuntimePath("")
+	runtimeVersion := "-"
+	if runtimePath != "" {
+		if _, err := os.Stat(runtimePath); err == nil {
+			runtimeVersion = version
+		}
+	}
+	fmt.Print(formatStatusDetail(status, runtimeVersion, runtimePath, home))
+}
+
+func formatStatusDetail(status manage.AdapterStatus, runtimeVersion, runtimePath, home string) string {
+	var builder strings.Builder
+	writeStatusLine(&builder, "Agent", status.Name)
+	writeStatusLine(&builder, "Command", status.Name)
+	writeStatusLine(&builder, "Supported", "yes")
+	writeStatusLine(&builder, "Installed", yesNo(status.Installed))
+	writeStatusLine(&builder, "Version", firstNonEmpty(runtimeVersion, "-"))
+	writeStatusLine(&builder, "Config", shortenPath(status.ConfigFile, home))
+	writeStatusLine(&builder, "Path", shortenPath(runtimePath, home))
+	writeStatusLine(&builder, "Enabled", status.Enabled)
+	return builder.String()
+}
+
+func writeStatusLine(builder *strings.Builder, key, value string) {
+	builder.WriteString(fmt.Sprintf("%-9s: %s\n", key, value))
+}
+
 func printRuntimeStatus() {
 	path := manage.RuntimePath("")
 	installed := false
@@ -160,6 +200,28 @@ func printRuntimeStatus() {
 	}
 	fmt.Printf("PLUGIN           VERSION       INSTALLED  PATH\n")
 	fmt.Printf("%-16s %-13s %-10s %s\n\n", "agent-telemetry", version, yesNo(installed), path)
+}
+
+func shortenPath(path, home string) string {
+	if path == "" {
+		return "-"
+	}
+	if home != "" && path == home {
+		return "~"
+	}
+	if home != "" && strings.HasPrefix(path, home+"/") {
+		return "~/" + strings.TrimPrefix(path, home+"/")
+	}
+	return path
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func yesNo(value bool) string {
@@ -180,7 +242,7 @@ func runUninstall(args []string) error {
 	target, flagArgs := splitTarget(args)
 	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	purge := fs.Bool("purge", false, "remove adapter configuration and state")
+	purge := fs.Bool("purge", false, "remove adapter state directories after deleting config")
 	home := fs.String("home", "", "override user home")
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -193,10 +255,53 @@ func runUninstall(args []string) error {
 		return err
 	}
 	for _, result := range results {
-		fmt.Printf("Removed %s adapter hook; config preserved: %t\n", result.Adapter, !result.ConfigPurged)
+		fmt.Printf("Removed %s adapter hook; config removed: %t; state purged: %t\n",
+			result.Adapter, result.ConfigRemoved, result.StatePurged)
 	}
 	if target == "" || target == "all" {
 		fmt.Println("Removed the shared agent-telemetry runtime.")
+	}
+	return nil
+}
+
+func runVersion(args []string) error {
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	upgrade := fs.Bool("u", false, "upgrade the shared runtime from GitHub Release")
+	fs.BoolVar(upgrade, "upgrade", false, "upgrade the shared runtime from GitHub Release")
+	home := fs.String("home", "", "override user home")
+	releaseVersion := fs.String("release-version", os.Getenv("AGENT_TELEMETRY_RELEASE_VERSION"), "release version to install, or latest")
+	githubRepo := fs.String("github-repo", os.Getenv("AGENT_TELEMETRY_GITHUB_REPO"), "GitHub repository in owner/repo form")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if !*upgrade {
+		fmt.Println(version)
+		return nil
+	}
+	result, err := selfupdate.Upgrade(selfupdate.Options{
+		Home:           *home,
+		ReleaseVersion: *releaseVersion,
+		GitHubRepo:     *githubRepo,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Upgraded agent-telemetry to %s\n", result.InstalledVersion)
+	fmt.Printf("Runtime: %s\n", result.Runtime)
+	if len(result.Targets) == 0 {
+		fmt.Println("Reconciled adapters: none detected")
+	} else {
+		fmt.Printf("Reconciled adapters: %s\n", strings.Join(result.Targets, ", "))
+	}
+	for _, warning := range result.Warnings {
+		fmt.Printf("Note: %s\n", warning)
 	}
 	return nil
 }

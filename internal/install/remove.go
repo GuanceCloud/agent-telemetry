@@ -12,7 +12,8 @@ type RemoveResult struct {
 	HookFile     string
 	ConfigFile   string
 	HookRemoved  bool
-	ConfigPurged bool
+	ConfigRemoved bool
+	StatePurged  bool
 }
 
 func RemoveAdapter(adapter, home string, purge bool) (RemoveResult, error) {
@@ -80,16 +81,17 @@ func removeClaude(home string, purge bool) (RemoveResult, error) {
 			}
 		}
 	}
+	if err := removeFileIfExists(result.ConfigFile); err != nil {
+		return result, err
+	}
+	result.ConfigRemoved = true
 	if purge {
-		if err := removeFileIfExists(result.ConfigFile); err != nil {
-			return result, err
-		}
 		for _, name := range []string{"agent-telemetry", "gtrace-agent"} {
 			if err := os.RemoveAll(filepath.Join(home, ".claude", "state", name)); err != nil {
 				return result, err
 			}
 		}
-		result.ConfigPurged = true
+		result.StatePurged = true
 	}
 	return result, nil
 }
@@ -116,16 +118,17 @@ func removeCodex(home string, purge bool) (RemoveResult, error) {
 			}
 		}
 	}
+	if err := removeFileIfExists(result.ConfigFile); err != nil {
+		return result, err
+	}
+	result.ConfigRemoved = true
 	if purge {
-		if err := removeFileIfExists(result.ConfigFile); err != nil {
-			return result, err
-		}
 		for _, name := range []string{"agent-telemetry", "gtrace-agent"} {
 			if err := os.RemoveAll(filepath.Join(home, ".codex", "state", name)); err != nil {
 				return result, err
 			}
 		}
-		result.ConfigPurged = true
+		result.StatePurged = true
 	}
 	return result, nil
 }

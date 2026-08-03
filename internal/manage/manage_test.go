@@ -54,7 +54,7 @@ func TestInstallUsesOneRuntimeForDetectedAdapters(t *testing.T) {
 	}
 }
 
-func TestEnableDisablePreservesConfigAndRemovePreservesByDefault(t *testing.T) {
+func TestEnableDisablePreservesConfigAndRemoveDeletesConfigByDefault(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	configPath := filepath.Join(home, ".codex", "gtrace.json")
@@ -89,11 +89,11 @@ func TestEnableDisablePreservesConfigAndRemovePreservesByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || !results[0].HookRemoved || results[0].ConfigPurged {
+	if len(results) != 1 || !results[0].HookRemoved || !results[0].ConfigRemoved || results[0].StatePurged {
 		t.Fatalf("unexpected remove result: %#v", results)
 	}
-	if _, err := os.Stat(configPath); err != nil {
-		t.Fatalf("config should be preserved: %v", err)
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config should be removed: %v", err)
 	}
 	status, err := Status("codex", home)
 	if err != nil {
