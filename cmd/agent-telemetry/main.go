@@ -11,10 +11,11 @@ import (
 	codexhook "github.com/GuanceCloud/agent-telemetry/internal/adapters/codex/hook"
 	"github.com/GuanceCloud/agent-telemetry/internal/install"
 	"github.com/GuanceCloud/agent-telemetry/internal/manage"
+	"github.com/GuanceCloud/agent-telemetry/internal/sharedconfig"
 	"github.com/GuanceCloud/agent-telemetry/internal/selfupdate"
 )
 
-var version = "0.3.0-rc.3"
+var version = "0.3.0-rc.4"
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help") {
@@ -48,6 +49,9 @@ func main() {
 			result, err := manage.Install(target, options)
 			if err != nil {
 				exitError(1, "install agent-telemetry", err)
+			}
+			if err := saveSharedConfigDefaults(options); err != nil {
+				exitError(1, "persist shared install defaults", err)
 			}
 			fmt.Printf("Installed agent-telemetry: %s\n", result.Runtime)
 			if len(result.Targets) == 0 {
@@ -300,10 +304,59 @@ func runVersion(args []string) error {
 	} else {
 		fmt.Printf("Reconciled adapters: %s\n", strings.Join(result.Targets, ", "))
 	}
+	if strings.TrimSpace(result.ConfigSource) != "" {
+		fmt.Printf("Bootstrap config: %s\n", shortenPath(result.ConfigSource, *home))
+	}
 	for _, warning := range result.Warnings {
 		fmt.Printf("Note: %s\n", warning)
 	}
 	return nil
+}
+
+func saveSharedConfigDefaults(options install.CodexOptions) error {
+	cfg := sharedconfig.Config{
+		Endpoint:           strings.TrimSpace(options.Endpoint),
+		TracePath:          strings.Trim(strings.TrimSpace(options.TracePath), "/"),
+		MetricsPath:        strings.Trim(strings.TrimSpace(options.MetricsPath), "/"),
+		InstallType:        strings.TrimSpace(options.InstallType),
+		XToken:             strings.TrimSpace(options.XToken),
+		Headers:            toStringMap(options.Headers),
+		ResourceAttributes: toStringMap(options.ResourceAttributes),
+		CaptureContent:     strings.TrimSpace(options.CaptureContent),
+		MaxChars:           options.MaxChars,
+	}
+	if options.Enabled != nil {
+		value := *options.Enabled
+		cfg.Enabled = &value
+	}
+	if !sharedconfig.HasMeaningfulValues(cfg) {
+		return nil
+	}
+	_, err := sharedconfig.Save(options.Home, cfg)
+	return err
+}
+
+func toStringMap(entries []string) map[string]string {
+	if len(entries) == 0 {
+		return nil
+	}
+	result := map[string]string{}
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		result[key] = value
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func exitError(code int, operation string, err error) {

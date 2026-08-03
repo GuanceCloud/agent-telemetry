@@ -10,7 +10,7 @@ install-release.sh [--release-version <version|latest>] [--github-repo <owner/re
 
 Examples:
   install-release.sh --type gtrace --endpoint https://llm-openway.guance.com --x-token '<token>' --enable
-  install-release.sh --release-version v0.3.0-rc.3 codex --type otlp --endpoint http://127.0.0.1:4318 --enable
+  install-release.sh --release-version v0.3.0-rc.4 codex --type otlp --endpoint http://127.0.0.1:4318 --enable
 EOF
 }
 

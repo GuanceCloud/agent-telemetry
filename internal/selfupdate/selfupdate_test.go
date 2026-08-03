@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/GuanceCloud/agent-telemetry/internal/sharedconfig"
 )
 
 func TestUpgradeInstallsLatestRuntimeAndPreservesConfig(t *testing.T) {
@@ -89,6 +91,70 @@ func TestUpgradeInstallsLatestRuntimeAndPreservesConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(hooksBody), "agent-telemetry hook codex") {
 		t.Fatalf("missing managed codex hook: %s", hooksBody)
+	}
+}
+
+func TestUpgradeBootstrapsMissingConfigFromSharedDefaults(t *testing.T) {
+	home := t.TempDir()
+	enabled := true
+	if _, err := sharedconfig.Save(home, sharedconfig.Config{
+		Endpoint:        "https://llm-openway.guance.com",
+		TracePath:       "v1/write/otel-llm",
+		MetricsPath:     "v1/write/otel-metrics",
+		InstallType:     "gtrace",
+		XToken:          "shared-token",
+		CaptureContent:  "preview",
+		Enabled:         &enabled,
+		ResourceAttributes: map[string]string{"env": "prod"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	assetName, binaryName, err := currentPlatformAsset("latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivePath := filepath.Join(t.TempDir(), assetName)
+	if err := writeTarGzArchive(archivePath, binaryName, "9.9.9", "new-binary"); err != nil {
+		t.Fatal(err)
+	}
+	archiveBody, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(archiveBody)
+	sumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), assetName)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/SHA256SUMS":
+			_, _ = w.Write([]byte(sumsBody))
+		case "/" + assetName:
+			_, _ = w.Write(archiveBody)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := Upgrade(Options{Home: home, BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(result.ConfigSource, ".agent-telemetry/config.json") {
+		t.Fatalf("unexpected config source: %q", result.ConfigSource)
+	}
+	configBody, err := os.ReadFile(filepath.Join(home, ".codex", "gtrace.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(configBody)
+	if !strings.Contains(text, `"endpoint": "https://llm-openway.guance.com"`) ||
+		!strings.Contains(text, `"X-Token": "shared-token"`) ||
+		!strings.Contains(text, `"enabled": true`) {
+		t.Fatalf("unexpected codex config:\n%s", text)
 	}
 }
 

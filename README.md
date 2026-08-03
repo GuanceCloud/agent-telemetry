@@ -31,8 +31,8 @@ curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/latest/downlo
 固定版本安装：
 
 ```bash
-curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/download/v0.3.0-rc.3/install-release.sh | bash -s -- \
-  --release-version v0.3.0-rc.3 \
+curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/download/v0.3.0-rc.4/install-release.sh | bash -s -- \
+  --release-version v0.3.0-rc.4 \
   codex \
   --type otlp \
   --endpoint http://127.0.0.1:4318 \

@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,11 +15,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/GuanceCloud/agent-telemetry/internal/install"
 	"github.com/GuanceCloud/agent-telemetry/internal/manage"
+	"github.com/GuanceCloud/agent-telemetry/internal/sharedconfig"
 )
 
 const defaultGitHubRepo = "GuanceCloud/agent-telemetry"
@@ -36,6 +39,7 @@ type Result struct {
 	Runtime          string
 	Targets          []string
 	Warnings         []string
+	ConfigSource     string
 }
 
 func Upgrade(options Options) (Result, error) {
@@ -77,6 +81,10 @@ func Upgrade(options Options) (Result, error) {
 		return Result{}, err
 	}
 	baseURL := releaseBaseURL(options.BaseURL, repo, releaseVersion)
+	statusesBefore, err := manage.Discover(home)
+	if err != nil {
+		return Result{}, err
+	}
 
 	workDir, err := os.MkdirTemp("", "agent-telemetry-upgrade-*")
 	if err != nil {
@@ -105,16 +113,240 @@ func Upgrade(options Options) (Result, error) {
 		SourceExecutable:      extractedBinary,
 		DestinationExecutable: runtimePath,
 		NoConfig:              true,
+		SkipTrust:             true,
 	})
 	if err != nil {
 		return Result{}, err
+	}
+	warnings := append([]string{}, installResult.Warnings...)
+	configSource := ""
+	defaults, defaultsOK, defaultsSource, defaultsErr := resolveBootstrapConfig(home)
+	if defaultsErr != nil {
+		warnings = append(warnings, "Bootstrap config defaults were unavailable: "+defaultsErr.Error())
+	}
+	if defaultsOK {
+		configSource = defaultsSource
+		for _, status := range missingConfigStatuses(statusesBefore) {
+			bootstrap := defaultsToInstallOptions(defaults)
+			bootstrap.Home = home
+			bootstrap.SourceExecutable = runtimePath
+			bootstrap.DestinationExecutable = runtimePath
+			bootstrap.SkipTrust = true
+			targetResult, installErr := manage.Install(status.Name, bootstrap)
+			if installErr != nil {
+				warnings = append(warnings, fmt.Sprintf("Failed to bootstrap %s config during upgrade: %v", status.Name, installErr))
+				continue
+			}
+			warnings = append(warnings, targetResult.Warnings...)
+		}
+	} else {
+		for _, status := range missingConfigStatuses(statusesBefore) {
+			warnings = append(warnings,
+				fmt.Sprintf("%s hook was upgraded but %s is still missing; run \"agent-telemetry install %s --endpoint <url> --x-token <token> --enable\" once to create it",
+					status.Name, status.ConfigFile, status.Name))
+		}
 	}
 	return Result{
 		InstalledVersion: firstNonEmpty(extractedVersion, releaseVersion),
 		Runtime:          installResult.Runtime,
 		Targets:          installResult.Targets,
-		Warnings:         installResult.Warnings,
+		Warnings:         uniqueStrings(warnings),
+		ConfigSource:     configSource,
 	}, nil
+}
+
+func resolveBootstrapConfig(home string) (sharedconfig.Config, bool, string, error) {
+	cfg, path, err := sharedconfig.Load(home)
+	if err != nil {
+		return sharedconfig.Config{}, false, "", err
+	}
+	if sharedconfig.HasMeaningfulValues(cfg) {
+		return cfg, true, path, nil
+	}
+	cfg, path, err = inferConfigFromInstalledAgents(home)
+	if err != nil {
+		return sharedconfig.Config{}, false, "", err
+	}
+	if sharedconfig.HasMeaningfulValues(cfg) {
+		return cfg, true, path, nil
+	}
+	return sharedconfig.Config{}, false, "", nil
+}
+
+func inferConfigFromInstalledAgents(home string) (sharedconfig.Config, string, error) {
+	statuses, err := manage.Discover(home)
+	if err != nil {
+		return sharedconfig.Config{}, "", err
+	}
+	for _, status := range statuses {
+		cfg, ok, err := configFromJSONFile(status.ConfigFile)
+		if err != nil {
+			return sharedconfig.Config{}, "", err
+		}
+		if ok {
+			return cfg, status.ConfigFile, nil
+		}
+	}
+	return sharedconfig.Config{}, "", nil
+}
+
+func configFromJSONFile(path string) (sharedconfig.Config, bool, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return sharedconfig.Config{}, false, nil
+		}
+		return sharedconfig.Config{}, false, err
+	}
+	if strings.TrimSpace(string(body)) == "" {
+		return sharedconfig.Config{}, false, nil
+	}
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return sharedconfig.Config{}, false, nil
+	}
+	cfg := sharedconfig.Config{
+		Endpoint:           trimJSONString(value["endpoint"]),
+		TracePath:          trimJSONString(value["tracePath"]),
+		MetricsPath:        trimJSONString(value["metricsPath"]),
+		CaptureContent:     trimJSONString(firstPresent(value, "captureContent", "capture_content")),
+		MaxChars:           intJSON(value["max_chars"]),
+		Headers:            stringMap(value["headers"]),
+		ResourceAttributes: stringMap(value["resourceAttributes"]),
+	}
+	if enabled, ok := boolJSON(value["enabled"]); ok {
+		cfg.Enabled = &enabled
+	}
+	if cfg.TracePath == "v1/traces" || cfg.MetricsPath == "v1/metrics" {
+		cfg.InstallType = "otlp"
+	} else {
+		cfg.InstallType = "gtrace"
+	}
+	if token := cfg.Headers["X-Token"]; strings.TrimSpace(token) != "" {
+		cfg.XToken = token
+		delete(cfg.Headers, "X-Token")
+	}
+	if !sharedconfig.HasMeaningfulValues(cfg) {
+		return sharedconfig.Config{}, false, nil
+	}
+	return cfg, true, nil
+}
+
+func defaultsToInstallOptions(cfg sharedconfig.Config) install.CodexOptions {
+	options := install.CodexOptions{
+		Endpoint:           cfg.Endpoint,
+		TracePath:          cfg.TracePath,
+		MetricsPath:        cfg.MetricsPath,
+		InstallType:        firstNonEmpty(cfg.InstallType, "gtrace"),
+		XToken:             cfg.XToken,
+		CaptureContent:     cfg.CaptureContent,
+		MaxChars:           cfg.MaxChars,
+		Headers:            stringMapEntries(cfg.Headers),
+		ResourceAttributes: stringMapEntries(cfg.ResourceAttributes),
+	}
+	if cfg.Enabled != nil {
+		value := *cfg.Enabled
+		options.Enabled = &value
+	}
+	return options
+}
+
+func missingConfigStatuses(statuses []manage.AdapterStatus) []manage.AdapterStatus {
+	result := make([]manage.AdapterStatus, 0, len(statuses))
+	for _, status := range statuses {
+		if !status.Detected {
+			continue
+		}
+		if strings.TrimSpace(status.Enabled) == "-" {
+			result = append(result, status)
+		}
+	}
+	return result
+}
+
+func stringMapEntries(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	entries := make([]string, 0, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		entries = append(entries, key+"="+value)
+	}
+	sort.Strings(entries)
+	return entries
+}
+
+func stringMap(value any) map[string]string {
+	current, ok := value.(map[string]any)
+	if !ok || len(current) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(current))
+	for key, raw := range current {
+		text := trimJSONString(raw)
+		if text != "" {
+			result[key] = text
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func trimJSONString(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+func intJSON(value any) int {
+	switch current := value.(type) {
+	case float64:
+		return int(current)
+	case int:
+		return current
+	default:
+		return 0
+	}
+}
+
+func boolJSON(value any) (bool, bool) {
+	current, ok := value.(bool)
+	return current, ok
+}
+
+func firstPresent(value map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if current, ok := value[key]; ok {
+			return current
+		}
+	}
+	return nil
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func normalizeReleaseVersion(value string) string {

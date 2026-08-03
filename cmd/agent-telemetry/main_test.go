@@ -18,7 +18,7 @@ func TestFormatStatusDetailMatchesConnectorStyle(t *testing.T) {
 
 	output := formatStatusDetail(
 		status,
-		"0.3.0-rc.3",
+		"0.3.0-rc.4",
 		"/home/liurui/.local/bin/agent-telemetry",
 		"/home/liurui",
 	)
@@ -28,7 +28,7 @@ func TestFormatStatusDetailMatchesConnectorStyle(t *testing.T) {
 		"Command  : codex",
 		"Supported: yes",
 		"Installed: yes",
-		"Version  : 0.3.0-rc.3",
+		"Version  : 0.3.0-rc.4",
 		"Config   : ~/.codex/gtrace.json",
 		"Path     : ~/.local/bin/agent-telemetry",
 		"Enabled  : true",
