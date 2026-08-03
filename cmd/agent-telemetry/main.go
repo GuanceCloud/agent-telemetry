@@ -12,7 +12,7 @@ import (
 	"github.com/GuanceCloud/agent-telemetry/internal/manage"
 )
 
-var version = "0.3.0-rc.1"
+var version = "0.3.0-rc.2"
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help") {

@@ -50,13 +50,13 @@ func TestUnifiedManifestIsGoOnlyAndVersionedConsistently(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"install.sh", "install.ps1"} {
+	for _, name := range []string{"install.sh", "install.ps1", "install-release.sh", "install-release.ps1"} {
 		body, err := os.ReadFile(filepath.Join(root, "scripts", name))
 		if err != nil {
 			t.Fatal(err)
 		}
 		text := strings.ToLower(string(body))
-		for _, forbidden := range []string{"python", "pip", "node", "venv", "gtrace-agent"} {
+		for _, forbidden := range []string{"git clone", "python", "pip", "node", "venv", "gtrace-agent"} {
 			if strings.Contains(text, forbidden) {
 				t.Fatalf("%s contains obsolete runtime dependency %q", name, forbidden)
 			}
@@ -91,6 +91,8 @@ func TestReleaseBuildPackagesOnlyUnifiedRuntime(t *testing.T) {
 		`./cmd/agent-telemetry`,
 		`"${REPO_ROOT}/plugin.json"`,
 		`"${REPO_ROOT}/scripts/install.sh"`,
+		`"${REPO_ROOT}/scripts/install-release.sh"`,
+		`agent-telemetry-${platform}.tar.gz`,
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("release build is missing %q", required)

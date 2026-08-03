@@ -74,15 +74,27 @@ for target in "${TARGETS[@]}"; do
       cd "${stage}"
       zip -qr "${DIST_DIR}/agent-telemetry-v${VERSION}-${platform}.zip" .
     )
+    cp \
+      "${DIST_DIR}/agent-telemetry-v${VERSION}-${platform}.zip" \
+      "${DIST_DIR}/agent-telemetry-${platform}.zip"
   else
     tar -czf "${DIST_DIR}/agent-telemetry-v${VERSION}-${platform}.tar.gz" -C "${stage}" .
+    cp \
+      "${DIST_DIR}/agent-telemetry-v${VERSION}-${platform}.tar.gz" \
+      "${DIST_DIR}/agent-telemetry-${platform}.tar.gz"
   fi
   rm -rf "${stage}"
 done
 
+cp "${REPO_ROOT}/scripts/install-release.sh" "${DIST_DIR}/install-release.sh"
+cp "${REPO_ROOT}/scripts/install-release.ps1" "${DIST_DIR}/install-release.ps1"
+chmod +x "${DIST_DIR}/install-release.sh"
+
 (
   cd "${DIST_DIR}"
   sha256sum agent-telemetry-v* >SHA256SUMS
+  sha256sum agent-telemetry-linux-* agent-telemetry-darwin-* agent-telemetry-windows-* >>SHA256SUMS
+  sha256sum install-release.sh install-release.ps1 >>SHA256SUMS
 )
 
 echo "Built release assets in ${DIST_DIR}"

@@ -18,55 +18,57 @@ Claude、Codex 等产品只是内置 Adapter，不再作为独立插件发布或
 
 ## 安装
 
-从源码构建：
+Linux / macOS 直接从 GitHub Release 安装：
 
 ```bash
-make build
-./output/agent-telemetry version
-```
-
-安装唯一插件并自动接入本机已发现的 Agent：
-
-```bash
-./output/agent-telemetry install \
+curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/latest/download/install-release.sh | bash -s -- \
   --type gtrace \
   --endpoint https://llm-openway.guance.com \
   --x-token '<token>' \
   --enable
 ```
 
-只接入指定 Adapter：
+固定版本安装：
 
 ```bash
-./output/agent-telemetry install codex \
+curl -fsSL https://github.com/GuanceCloud/agent-telemetry/releases/download/v0.3.0-rc.2/install-release.sh | bash -s -- \
+  --release-version v0.3.0-rc.2 \
+  codex \
   --type otlp \
   --endpoint http://127.0.0.1:4318 \
   --enable
 ```
 
-重复执行 `install` 会替换共享二进制、校准 Hook，并保留没有显式覆盖的已有配置。
-统一模型中没有 `update codex`：升级的是整个 `agent-telemetry`，不是某个独立插件。
+Windows 直接从 GitHub Release 安装：
 
-从解压后的发布包安装：
-
-```bash
-./scripts/install.sh \
-  --type gtrace \
-  --endpoint https://llm-openway.guance.com \
-  --x-token '<token>' \
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod https://github.com/GuanceCloud/agent-telemetry/releases/latest/download/install-release.ps1))) `
+  --type gtrace `
+  --endpoint https://llm-openway.guance.com `
+  --x-token '<token>' `
   --enable
 ```
 
-Windows：
+发布包也支持先下载再离线执行包内安装器：
 
-```powershell
-.\scripts\install.ps1 --type gtrace --endpoint https://llm-openway.guance.com --x-token '<token>' --enable
+```bash
+./scripts/install.sh --type gtrace --endpoint https://llm-openway.guance.com --x-token '<token>' --enable
 ```
+
+重复执行 `install` 会替换共享二进制、校准 Hook，并保留没有显式覆盖的已有配置。
+统一模型中没有 `update codex`：升级的是整个 `agent-telemetry`，不是某个独立插件。
 
 安装后共享运行时位于：
 
 ```text
 ~/.local/bin/agent-telemetry
+```
+
+从源码构建仅用于开发：
+
+```bash
+make build
+./output/agent-telemetry version
 ```
 
 ## 管理

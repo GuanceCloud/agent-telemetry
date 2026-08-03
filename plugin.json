@@ -1,7 +1,7 @@
 {
   "id": "agent-telemetry",
   "name": "agent-telemetry",
-  "version": "0.3.0-rc.1",
+  "version": "0.3.0-rc.2",
   "runtime": "go",
   "binary": "agent-telemetry",
   "adapters": [
